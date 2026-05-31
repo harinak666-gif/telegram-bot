@@ -1,73 +1,58 @@
 import os
 import telebot
-import openai
+import requests
 import random
-import time
 from flask import Flask
 import threading
 
-# Токены из переменных окружения
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+DEEPINFRA_API_KEY = os.environ.get("DEEPINFRA_API_KEY")  # можно оставить пустым для публичных моделей
 
-if not TELEGRAM_TOKEN or not OPENAI_API_KEY:
-    raise ValueError("Добавьте TELEGRAM_TOKEN и OPENAI_API_KEY в Environment Variables")
-
-openai.api_key = OPENAI_API_KEY
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
+
+# Бесплатная модель (можно сменить на другую)
+MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1"  # или "meta-llama/Llama-3-8b-chat-hf"
+API_URL = f"https://api.deepinfra.com/v1/openai/chat/completions"
 
 RANDOM_STYLES = [
     "Придумай короткий смешной факт.",
     "Расскажи анекдот в одном предложении.",
     "Напиши философскую мысль дня.",
-    "Придумай странный вопрос для размышления.",
-    "Скажи что-то мотивирующее и необычное.",
-    "Опиши погоду на вымышленной планете.",
-    "Дай безумный кулинарный совет.",
+    "Скажи что-то мотивирующее.",
 ]
+
+def generate(prompt):
+    headers = {"Content-Type": "application/json"}
+    if DEEPINFRA_API_KEY:
+        headers["Authorization"] = f"Bearer {DEEPINFRA_API_KEY}"
+    data = {
+        "model": MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 150,
+        "temperature": 0.9
+    }
+    resp = requests.post(API_URL, headers=headers, json=data, timeout=30)
+    if resp.status_code == 200:
+        return resp.json()["choices"][0]["message"]["content"].strip()
+    else:
+        raise Exception(f"API error {resp.status_code}: {resp.text}")
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.reply_to(message, "Привет! Я ИИ-бот. Напиши мне что угодно, и я отвечу случайной мыслью.")
-
-@bot.message_handler(commands=['random'])
-def random_cmd(message):
-    prompt = random.choice(RANDOM_STYLES)
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=150,
-            temperature=0.9
-        )
-        bot.reply_to(message, response.choices[0].message.content.strip())
-    except Exception as e:
-        bot.reply_to(message, "ИИ задумался, попробуй позже...")
+    bot.reply_to(message, "Привет! Я ИИ-бот на бесплатной модели. Напиши мне!")
 
 @bot.message_handler(func=lambda m: True)
 def reply(message):
     prompt = random.choice(RANDOM_STYLES)
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=150,
-            temperature=0.9
-        )
-        bot.reply_to(message, response.choices[0].message.content.strip())
+        text = generate(prompt)
+        bot.reply_to(message, text)
     except Exception as e:
-        bot.reply_to(message, "ИИ временно задумался... Попробуй ещё раз!")
+        bot.reply_to(message, "ИИ временно задумался... Попробуй позже.")
+        print(e)
 
-# Flask для Render
 app = Flask(__name__)
-
 @app.route('/')
-def home():
-    return "ИИ-бот работает!"
-
-def run_flask():
-    app.run(host='0.0.0.0', port=10000)
-
-threading.Thread(target=run_flask).start()
-print("ИИ-бот запущен на Render!")
+def home(): return "OK"
+threading.Thread(target=lambda: app.run(host='0.0.0.0', port=10000)).start()
 bot.infinity_polling()
