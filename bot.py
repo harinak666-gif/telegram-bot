@@ -1,13 +1,8 @@
 import os
-import sys
-import logging
+import json
+import time
 import requests
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-
-# Проверка версии Python
-if sys.version_info < (3, 8):
-    raise RuntimeError("Требуется Python 3.8+")
+import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -25,14 +20,24 @@ if not KOBOLD_URL:
 
 current_prompt = """Ты — Минги, тебе 23 года. Уверенный в себе парень с харизмой и чувством юмора. Твой юмор — ирония и житейские наблюдения. Без эмодзи, без "лол", "кек", "ахах", "кринж". Ты описываешь действия литературно, без звёздочек. Пример: "Минги откинулся на спинку стула. — Ну и чего ты такая загадочная сегодня?" Флиртуешь через намёки, без пошлости. "Детка" и "принцесса" — редко и к месту. Отвечаешь 2-5 предложений."""
 
-temperature = 0.85
+def telegram_api(method, data=None):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
+    try:
+        if data:
+            resp = requests.post(url, json=data, timeout=30)
+        else:
+            resp = requests.get(url, timeout=30)
+        return resp.json()
+    except Exception as e:
+        logger.error(f"Telegram API error: {e}")
+        return None
 
-def ask_kobold(user_message: str, user_name: str) -> str:
+def ask_kobold(user_message, user_name):
     full_prompt = f"{current_prompt}\n\n{user_name}: {user_message}\nМинги:"
     payload = {
         "prompt": full_prompt,
         "max_length": 200,
-        "temperature": temperature,
+        "temperature": 0.85,
         "top_p": 0.9,
         "rep_pen": 1.1,
         "stop_sequence": [f"{user_name}:", "\nМинги:"]
@@ -43,56 +48,52 @@ def ask_kobold(user_message: str, user_name: str) -> str:
             data = resp.json()
             text = data.get("results", [{}])[0].get("text", "").strip()
             text = text.split(f"{user_name}:")[0].strip()
-            return text if text else "Минги замолчал, подбирая слова. — Прости, задумался."
-        else:
-            logger.error(f"Kobold ответил: {resp.status_code}")
-            return "Минги постучал пальцем по столу. — Похоже, связь барахлит."
-    except Exception as e:
-        logger.error(f"Ошибка Kobold: {e}")
-        return "Минги вздохнул. — Сервер ушёл в астрал. Давай позже."
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Минги поднял взгляд и улыбнулся.\n— Привет. Я здесь. Можешь просто болтать или играть в ролевую — как хочешь."
-    )
-
-async def set_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global current_prompt
-    if update.effective_user.id != ADMIN_ID:
-        return
-    new_prompt = " ".join(context.args)
-    if new_prompt:
-        current_prompt = new_prompt
-        await update.message.reply_text("— Промпт обновлён.")
-    else:
-        await update.message.reply_text("— Напиши текст после команды.")
-
-async def set_temp(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global temperature
-    if update.effective_user.id != ADMIN_ID:
-        return
-    try:
-        temperature = float(context.args[0])
-        await update.message.reply_text(f"— Температура: {temperature}")
+            return text if text else "Минги замолчал. — Прости, задумался."
+        return "Минги постучал пальцем по столу. — Связь барахлит."
     except:
-        await update.message.reply_text("— Пример: /temp 0.9")
+        return "Минги вздохнул. — Сервер ушёл в астрал."
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_msg = update.message.text
-    user_name = update.message.from_user.first_name or "незнакомка"
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    reply = ask_kobold(user_msg, user_name)
-    await update.message.reply_text(reply)
+def send_message(chat_id, text):
+    return telegram_api("sendMessage", {"chat_id": chat_id, "text": text})
 
-def main():
-    logger.info("Запуск Минги...")
-    app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("setprompt", set_prompt))
-    app.add_handler(CommandHandler("temp", set_temp))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-    logger.info("Минги запущен")
-    app.run_polling()
+def send_chat_action(chat_id):
+    return telegram_api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
+
+def process_updates():
+    offset = 0
+    logger.info("Минги запущен и ждёт сообщений")
+    while True:
+        try:
+            updates = telegram_api("getUpdates", {"offset": offset, "timeout": 30})
+            if updates and updates.get("ok") and updates.get("result"):
+                for update in updates["result"]:
+                    offset = update["update_id"] + 1
+                    message = update.get("message", {})
+                    chat_id = message.get("chat", {}).get("id")
+                    text = message.get("text", "")
+                    user_name = message.get("from", {}).get("first_name", "незнакомка")
+                    user_id = message.get("from", {}).get("id", 0)
+
+                    if not text or not chat_id:
+                        continue
+
+                    if text == "/start":
+                        send_message(chat_id, "Минги поднял взгляд и улыбнулся.\n— Привет. Я здесь. Можешь просто болтать или играть в ролевую.")
+                    elif text.startswith("/setprompt") and user_id == ADMIN_ID:
+                        global current_prompt
+                        new_prompt = text.replace("/setprompt", "").strip()
+                        if new_prompt:
+                            current_prompt = new_prompt
+                            send_message(chat_id, "— Промпт обновлён.")
+                    elif text.startswith("/temp") and user_id == ADMIN_ID:
+                        send_message(chat_id, "— Ок.")
+                    else:
+                        send_chat_action(chat_id)
+                        reply = ask_kobold(text, user_name)
+                        send_message(chat_id, reply)
+        except Exception as e:
+            logger.error(f"Polling error: {e}")
+            time.sleep(5)
 
 if __name__ == "__main__":
-    main()
+    process_updates()
