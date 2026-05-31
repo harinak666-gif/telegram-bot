@@ -1,8 +1,16 @@
+import os
 import telebot
 import random
-import os
+from flask import Flask
+import threading
 
-TELEGRAM_TOKEN = os.environ.get("8936411298:AAHsRtaUeCPGe21t-amiuKbuE6zRpNIPK50")
+# Токен из переменных окружения Render
+8936411298:AAEx9I1nJKlhTf6xRckEG_JLdlWW_TyPoFo = os.environ.get("8936411298:AAEx9I1nJKlhTf6xRckEG_JLdlWW_TyPoFo")
+
+if not 8936411298:AAEx9I1nJKlhTf6xRckEG_JLdlWW_TyPoFo:
+    raise ValueError("Токен не найден! Добавьте TELEGRAM_TOKEN в Environment Variables на Render")
+
+bot = telebot.TeleBot(8936411298:AAEx9I1nJKlhTf6xRckEG_JLdlWW_TyPoFo)
 
 phrases = [
     "Привет! Я работаю на Render! 🌟",
@@ -10,27 +18,17 @@ phrases = [
     "Случайная мысль от бота!",
     "Какой чудесный день! ☀️",
     "Бот активен и отвечает 24/7!",
-    "Знаете ли вы, что слоны не умеют прыгать?",
-    "Лучшая мотивация — начать с малого!",
-    "Сегодня отличный день для новых идей!",
-    "Кстати, а вы знали, что бананы радиоактивны?",
-    "Случайный факт: пингвины делают предложение камушком!",
 ]
-
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.reply_to(message, "Привет! Я бот на Render! Напиши мне что-нибудь 😊")
+    bot.reply_to(message, "Привет! Я бот на Render! Напиши мне 😊")
 
 @bot.message_handler(func=lambda m: True)
 def reply(message):
     bot.reply_to(message, random.choice(phrases))
 
-# Для Render нужен веб-сервер (порт)
-from flask import Flask
-import threading
-
+# Flask для Render (обязательно)
 app = Flask(__name__)
 
 @app.route('/')
@@ -40,7 +38,7 @@ def home():
 def run_flask():
     app.run(host='0.0.0.0', port=10000)
 
-# Запускаем Flask в отдельном потоке
+# Запускаем Flask в фоне
 threading.Thread(target=run_flask).start()
 
 # Запускаем бота
