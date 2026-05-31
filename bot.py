@@ -4,20 +4,21 @@ import random
 from flask import Flask
 import threading
 
-# Токен из переменных окружения Render
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
-if not 8936411298:AAEx9I1nJKlhTf6xRckEG_JLdlWW_TyPoFo:
-    raise ValueError("Токен не найден! Добавьте TELEGRAM_TOKEN в Environment Variables на Render")
+if not TELEGRAM_TOKEN:
+    raise ValueError("Токен не найден! Добавьте TELEGRAM_TOKEN в переменные окружения Render")
 
-bot = telebot.TeleBot(8936411298:AAEx9I1nJKlhTf6xRckEG_JLdlWW_TyPoFo)
+bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
 phrases = [
     "Привет! Я работаю на Render! 🌟",
     "Ура! Всё получилось! 🎉",
     "Случайная мысль от бота!",
     "Какой чудесный день! ☀️",
-    "Бот активен и отвечает 24/7!",
+    "Бот активен 24/7!",
+    "Знаете ли вы, что слоны не умеют прыгать?",
+    "Лучшая мотивация — начать с малого!",
 ]
 
 @bot.message_handler(commands=['start'])
@@ -28,7 +29,6 @@ def start(message):
 def reply(message):
     bot.reply_to(message, random.choice(phrases))
 
-# Flask для Render (обязательно)
 app = Flask(__name__)
 
 @app.route('/')
@@ -38,9 +38,7 @@ def home():
 def run_flask():
     app.run(host='0.0.0.0', port=10000)
 
-# Запускаем Flask в фоне
 threading.Thread(target=run_flask).start()
 
-# Запускаем бота
-print("Бот запущен на Render!")
+print("Бот запущен!")
 bot.infinity_polling()
