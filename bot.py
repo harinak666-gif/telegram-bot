@@ -10,8 +10,8 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
-# Gemini бесплатная модель
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+# Правильная модель из вашего curl
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent"
 
 RANDOM_STYLES = [
     "Придумай короткий смешной факт.",
@@ -22,7 +22,6 @@ RANDOM_STYLES = [
     "Опиши погоду на вымышленной планете.",
 ]
 
-# Запасные фразы
 FALLBACK = [
     "Слоны не умеют прыгать, но отлично плавают! 🐘",
     "Бананы радиоактивны, но нужно съесть 10 миллионов за раз. 🍌",
@@ -43,7 +42,7 @@ def generate(prompt):
         if resp.status_code == 200:
             return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
         else:
-            print(f"Gemini error: {resp.status_code} {resp.text}")
+            print(f"Gemini error: {resp.status_code}")
             return None
     except Exception as e:
         print(f"Exception: {e}")
