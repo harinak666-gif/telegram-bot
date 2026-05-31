@@ -5,7 +5,7 @@ from flask import Flask
 import threading
 
 # Токен из переменных окружения Render
-8936411298:AAEx9I1nJKlhTf6xRckEG_JLdlWW_TyPoFo = os.environ.get("8936411298:AAEx9I1nJKlhTf6xRckEG_JLdlWW_TyPoFo")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
 if not 8936411298:AAEx9I1nJKlhTf6xRckEG_JLdlWW_TyPoFo:
     raise ValueError("Токен не найден! Добавьте TELEGRAM_TOKEN в Environment Variables на Render")
