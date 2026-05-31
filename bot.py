@@ -2,7 +2,7 @@ import telebot
 import random
 import os
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+TELEGRAM_TOKEN = os.environ.get("8936411298:AAHsRtaUeCPGe21t-amiuKbuE6zRpNIPK50")
 
 phrases = [
     "Привет! Я работаю на Render! 🌟",
