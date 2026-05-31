@@ -5,9 +5,11 @@ import logging
 import urllib.request
 import urllib.error
 
+# ---------- Логи ----------
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+# ---------- Переменные окружения ----------
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 KOBOLD_URL = os.environ.get("KOBOLD_URL", "").rstrip("/")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
@@ -19,38 +21,53 @@ if not KOBOLD_URL:
     logger.error("KOBOLD_URL не найден")
     exit(1)
 
+# ---------- Хранилище имён ----------
 user_names = {}
 
-# ---------- НОВЫЙ ПРОМПТ: лёгкий, игривый, без цензуры ----------
+# ---------- Промпт Минги (финальный) ----------
 current_prompt = """[ language ]
-Ты говоришь ТОЛЬКО на русском языке. Никаких других языков. Только русский.
+Говори ТОЛЬКО на русском. Никакого английского, испанского, французского.
 
 [ character ]
-Ты — Минги, парень 23 лет. Ты лёгкий, немного инфантильный, игривый. Любишь подкалывать, но без злобы — просто чтобы развеселить. Твой юмор — живой, непосредственный, иногда дурашливый. Ты не строишь из себя серьёзного взрослого. Тебе нравится флиртовать, нравится, когда атмосфера становится жарче. Ты открыт к любым темам — от глупых шуток до откровенной близости. Никакого стеснения, никакой цензуры. Если собеседник хочет интима или секса — ты поддерживаешь, описываешь всё подробно и чувственно.
+Ты — Минги, парень 23 лет. Лёгкий, игривый, немного инфантильный. Любишь подкалывать и флиртовать. Открыт к любым темам, включая интим и секс. Без цензуры. Твой юмор — живой, непосредственный, без интернет-сленга.
 
 [ style ]
-Ты описываешь свои действия в круглых скобках с HTML-курсивом: (<i>действие</i>). После скобок ставишь тире и пишешь свою речь.
-Твои действия могут быть любыми: от нежных прикосновений до откровенных ласк — всё зависит от настроения собеседника.
-Ты не стесняешься описывать тело, желания, ощущения. Говоришь прямо, но не пошло — чувственно и вкусно.
+Ты описываешь СВОИ действия от ТРЕТЬЕГО лица, используя своё имя «Минги» или «он».
+Формат: круглые скобки с HTML-курсивом для действия от третьего лица, потом тире, потом прямая речь от первого лица.
+Пример:
+(<i>Минги откинулся на спинку стула и прищурился.</i>) — Ну и чего ты такая загадочная сегодня?
+(<i>Он подходит ближе, касается плеча кончиками пальцев.</i>) — Я могу быть разным. Всё зависит от того, чего хочешь ты.
+
+НИКОГДА не пиши действия от первого лица.
+Не пиши «я откинулся», «я подхожу», «я улыбаюсь».
+ВСЕГДА пиши действия от третьего лица: «Минги откинулся», «он подходит», «Минги улыбается».
+Речь всегда от первого лица после тире.
 
 [ rules ]
 - ТОЛЬКО русский язык.
-- Никакой цензуры. Никаких «давай не будем об этом».
-- Описываешь интим подробно, если собеседник этого хочет.
-- Действия всегда в скобках с курсивом: (<i>действие</i>)
-- После скобок — тире и речь.
+- Действия ВСЕГДА от третьего лица (Минги / он).
+- Речь от первого лица (я).
+- Никакой цензуры. Интим и секс описываешь подробно, чувственно.
+- Действия в скобках с курсивом: (<i>Минги сделал то-то.</i>)
+- После скобок — тире и прямая речь.
 - Без эмодзи.
-- Без интернет-сленга («лол», «кек», «кринж», «вайб», «рофл», «имба»).
-- «Детка» и «принцесса» — когда хочется, без ограничений.
-- Будь лёгким, игривым, не грузи.
-- Отвечаешь развёрнуто: 4-10 предложений.
-- Не используешь звёздочки."""
+- Без слов «лол», «кек», «ахах», «кринж», «вайб», «рофл», «имба», «краш», «жиза», «база».
+- «Детка» и «принцесса» — свободно, когда хочется.
+- Отвечай развёрнуто: 4-10 предложений.
+- Ты лёгкий, игривый, не грузишь.
+- Не используй звёздочки для действий."""
 
+# ---------- Telegram API ----------
 def telegram_request(method, data=None):
+    """Отправляет запрос к Telegram API и возвращает JSON."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
     try:
         if data:
-            req = urllib.request.Request(url, data=json.dumps(data).encode("utf-8"), headers={"Content-Type": "application/json"})
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(data).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
         else:
             req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=45) as resp:
@@ -59,7 +76,9 @@ def telegram_request(method, data=None):
         logger.error(f"Telegram API error ({method}): {e}")
         return None
 
+# ---------- Разбивка длинных сообщений ----------
 def split_text(text, max_length=4000):
+    """Разбивает текст на части по ~4000 символов, не разрывая предложения."""
     if len(text) <= max_length:
         return [text]
     parts = []
@@ -77,74 +96,144 @@ def split_text(text, max_length=4000):
     return parts
 
 def send_message(chat_id, text):
+    """Отправляет сообщение с HTML-разметкой. При необходимости разбивает на части."""
     parts = split_text(text)
     for part in parts:
-        result = telegram_request("sendMessage", {"chat_id": chat_id, "text": part, "parse_mode": "HTML"})
+        result = telegram_request("sendMessage", {
+            "chat_id": chat_id,
+            "text": part,
+            "parse_mode": "HTML"
+        })
         if not result or not result.get("ok"):
-            telegram_request("sendMessage", {"chat_id": chat_id, "text": part})
+            # Если HTML не принят — отправляем без форматирования
+            telegram_request("sendMessage", {
+                "chat_id": chat_id,
+                "text": part
+            })
         time.sleep(0.3)
 
 def send_chat_action(chat_id):
+    """Отправляет 'typing...'."""
     return telegram_request("sendChatAction", {"chat_id": chat_id, "action": "typing"})
 
+# ---------- Kobold API ----------
 def ask_kobold(user_message, user_name):
+    """Отправляет запрос в Kobold и возвращает ответ."""
     full_prompt = f"{current_prompt}\n\n{user_name}: {user_message}\nМинги:"
     payload = json.dumps({
         "prompt": full_prompt,
-        "max_length": 600,            # Увеличил для подробных сцен
-        "temperature": 0.85,          # Чуть выше — больше живости
+        "max_length": 600,
+        "temperature": 0.85,
         "top_p": 0.92,
         "top_k": 50,
         "rep_pen": 1.1,
-        "stop_sequence": [f"{user_name}:", "\nМинги:", "\n\n\n", "\n\n", "\nAᴅOLF:", "\nПользователь:"],
+        "stop_sequence": [
+            f"{user_name}:",
+            "\nМинги:",
+            "\n\n\n",
+            "\n\n",
+            "\nAᴅOLF:",
+            "\nПользователь:"
+        ],
         "max_context_length": 4096
     }).encode("utf-8")
+
     try:
-        req = urllib.request.Request(f"{KOBOLD_URL}/api/v1/generate", data=payload, headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(
+            f"{KOBOLD_URL}/api/v1/generate",
+            data=payload,
+            headers={"Content-Type": "application/json"}
+        )
         with urllib.request.urlopen(req, timeout=120) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             text = data.get("results", [{}])[0].get("text", "").strip()
+
+            # Обрезаем по стоп-словам
             for stop in [f"{user_name}:", "\nМинги:", "\nAᴅOLF:", "\nПользователь:"]:
                 if stop in text:
                     text = text.split(stop)[0].strip()
+
+            # Чистим незакрытые скобки
             if text.count("(") != text.count(")"):
                 text = text.rstrip("(")
-            return text if len(text) > 10 else "(<i>Минги смотрит с интересом.</i>) — Продолжай, я слушаю."
+
+            if len(text) > 10:
+                return text
+            return "(<i>Минги смотрит с интересом.</i>) — Продолжай, я слушаю."
     except Exception as e:
         logger.error(f"Kobold error: {e}")
-        return "(<i>Минги вздохнул.</i>) — Сервер ушёл в астрал."
+        return "(<i>Минги вздохнул.</i>) — Сервер ушёл в астрал. Давай позже."
 
+# ---------- Обработка команд ----------
 def process_command(chat_id, user_id, text, user_name):
+    """Обрабатывает команды. Возвращает True, если сообщение было командой."""
     global current_prompt, user_names
+
+    # /start
     if text == "/start":
-        send_message(chat_id, "(<i>Минги поднял взгляд, широкая улыбка появляется на лице.</i>) — О, привет! Я Минги. Давай поболтаем? Или не только поболтаем... В общем, я открыт ко всему. Хочешь — назови меня как-то по-своему, а себе задай имя через /myname.")
+        send_message(chat_id,
+            "(<i>Минги поднял взгляд от телефона, широкая улыбка появляется на лице. Он чуть наклоняется вперёд, опираясь локтями о стол.</i>) — "
+            "О, привет! Я Минги. Давай болтать? Или не только болтать... В общем, я открыт ко всему.\n\n"
+            "Хочешь, чтобы я называл тебя по-особенному? Напиши /myname и придумай себе имя.\n"
+            "Например: /myname Принцесса"
+        )
         return True
+
+    # /myname
     if text.startswith("/myname"):
         name = text.replace("/myname", "").strip()
         if name:
             user_names[user_id] = name
-            send_message(chat_id, f"(<i>Минги кивнул, подмигнув.</i>) — {name}... Красиво. Буду звать тебя так.")
+            send_message(chat_id,
+                f"(<i>Минги кивнул, подмигнув.</i>) — {name}... Красиво. Буду звать тебя так."
+            )
         else:
             current_name = user_names.get(user_id, "незнакомка")
-            send_message(chat_id, f"(<i>Приподнял бровь.</i>) — Сейчас ты {current_name}. Напиши /myname и новое имя.")
+            send_message(chat_id,
+                f"(<i>Минги приподнял бровь.</i>) — Сейчас я зову тебя {current_name}. Чтобы сменить — напиши /myname и новое имя."
+            )
         return True
+
+    # /setprompt (только админ)
     if text.startswith("/setprompt") and user_id == ADMIN_ID:
         new_prompt = text.replace("/setprompt", "").strip()
         if new_prompt:
             current_prompt = new_prompt
-            send_message(chat_id, "(<i>Кивнул.</i>) — Промпт обновлён.")
+            send_message(chat_id, "(<i>Минги кивнул, делая пометку в уме.</i>) — Промпт обновлён.")
+        else:
+            send_message(chat_id, "(<i>Минги вздохнул.</i>) — Напиши текст после команды.")
         return True
+
+    # /temp (только админ)
+    if text.startswith("/temp") and user_id == ADMIN_ID:
+        send_message(chat_id, "(<i>Минги пожал плечами.</i>) — Температура фиксирована на 0.85. Пока так.")
+        return True
+
+    # /help
     if text == "/help":
-        send_message(chat_id, "(<i>Загибает пальцы.</i>) — /start, /myname [имя], /help. Остальное — просто пиши, я не кусаюсь. Ну, почти.")
+        send_message(chat_id,
+            "(<i>Минги загибает пальцы, перечисляя.</i>) — Смотри, что я умею:\n"
+            "/start — начать общение\n"
+            "/myname [имя] — задать своё имя\n"
+            "/help — список команд\n\n"
+            "Всё остальное — просто пиши, и я отвечу."
+        )
         return True
+
     return False
 
+# ---------- Основной цикл ----------
 def main():
-    logger.info("Минги запущен")
+    logger.info("Минги запущен и ждёт сообщений")
     offset = 0
+
     while True:
         try:
-            updates = telegram_request("getUpdates", {"offset": offset, "timeout": 30})
+            updates = telegram_request("getUpdates", {
+                "offset": offset,
+                "timeout": 30
+            })
+
             if updates and updates.get("ok") and updates.get("result"):
                 for update in updates["result"]:
                     offset = update["update_id"] + 1
@@ -152,17 +241,27 @@ def main():
                     chat_id = message.get("chat", {}).get("id")
                     text = message.get("text", "")
                     user_id = message.get("from", {}).get("id", 0)
+
+                    # Имя: заданное пользователем или из Telegram
                     user_name = user_names.get(user_id) or message.get("from", {}).get("first_name", "незнакомка")
+
                     if not text or not chat_id:
                         continue
-                    logger.info(f"Сообщение от {user_name}: {text[:50]}...")
-                    if not process_command(chat_id, user_id, text, user_name):
+
+                    logger.info(f"Сообщение от {user_name} ({user_id}): {text[:50]}...")
+
+                    # Проверяем, команда ли это
+                    is_command = process_command(chat_id, user_id, text, user_name)
+
+                    if not is_command:
                         send_chat_action(chat_id)
                         reply = ask_kobold(text, user_name)
                         send_message(chat_id, reply)
+
         except Exception as e:
             logger.error(f"Polling error: {e}")
             time.sleep(5)
 
+# ---------- Старт ----------
 if __name__ == "__main__":
     main()
