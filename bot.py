@@ -80,7 +80,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(reply)
 
 def main():
-    logger.info(f"Запуск Минги...")
+    logger.info("Запуск Минги...")
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("setprompt", set_prompt))
