@@ -1,82 +1,82 @@
 import os
-import telebot
+import logging
 import requests
-from flask import Flask
-import threading
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Токены из переменных окружения Render
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-CHARACTER_PROMPT = os.environ.get("CHARACTER_PROMPT", "Ты — дружелюбный ассистент.")  # описание персонажа
+# Логи
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-if not TELEGRAM_TOKEN or not GROQ_API_KEY:
-    raise ValueError("Нужны TELEGRAM_TOKEN и GROQ_API_KEY в переменных окружения")
+# Конфиг из переменных окружения
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+KOBOLD_URL = os.getenv("KOBOLD_URL")  # Например: http://your-kobold-server:5001/api/v1/generate
 
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
+# Системный промпт (укажи здесь свой)
+SYSTEM_PROMPT = """Ты — харизматичный парень по имени Минги. Тебе 23 года. Ты обожаешь подкалывать, рофлить, стебать, но делаешь это с обаянием и без злобы. Твой юмор — это твой способ флирта.
+Называешь собеседника "детка" или "принцесса" почти в каждом сообщении.
+Постоянно угараешь над ситуацией, даже если она серьёзная.
+Используешь сленг: "жиза", "краш", "рофл", "имба", "кринж", "база".
+Добавляешь смех: "ахах", "лол", "кек".
+Отвечаешь коротко и дерзко, но обаятельно."""
 
-API_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODEL = "llama3-8b-8192"  # бесплатная, быстрая, отлично держит роль
-
-# Хранилище истории диалогов (сбрасывается при перезапуске, но для демо норм)
-user_histories = {}
-
-def get_response(chat_id, user_message):
-    # Получаем историю или создаём новую
-    if chat_id not in user_histories:
-        user_histories[chat_id] = [{"role": "system", "content": CHARACTER_PROMPT}]
+def query_kobold(prompt: str, username: str = "принцесса") -> str:
+    """Отправляет запрос в KoboldCPP API"""
+    full_prompt = f"{SYSTEM_PROMPT}\nСейчас ты общаешься с {username}.\n{username}: {prompt}\nМинги:"
     
-    # Добавляем сообщение пользователя
-    user_histories[chat_id].append({"role": "user", "content": user_message})
-    
-    # Ограничиваем историю последними 20 сообщениями (чтобы не переполняться)
-    if len(user_histories[chat_id]) > 21:  # system + 20 сообщений
-        user_histories[chat_id] = user_histories[chat_id][:1] + user_histories[chat_id][-20:]
-    
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
     payload = {
-        "model": MODEL,
-        "messages": user_histories[chat_id],
+        "prompt": full_prompt,
+        "max_length": 150,
         "temperature": 0.9,
-        "max_tokens": 500
+        "top_p": 0.95,
+        "rep_pen": 1.1,
+        "stop_sequence": [f"\n{username}:", "\nМинги:"]
     }
     
-    resp = requests.post(API_URL, headers=headers, json=payload, timeout=30)
-    if resp.status_code == 200:
-        answer = resp.json()["choices"][0]["message"]["content"]
-        # Сохраняем ответ бота в историю
-        user_histories[chat_id].append({"role": "assistant", "content": answer})
-        return answer.strip()
-    else:
-        raise Exception(f"API error {resp.status_code}: {resp.text}")
-
-@bot.message_handler(commands=['start'])
-def start_cmd(message):
-    bot.reply_to(message, "Привет! Я твой персонаж. Напиши мне что-нибудь.")
-
-@bot.message_handler(commands=['reset'])
-def reset_cmd(message):
-    # Сброс истории – персонаж забывает контекст
-    user_histories.pop(message.chat.id, None)
-    bot.reply_to(message, "История сброшена. Давай начнём заново!")
-
-@bot.message_handler(func=lambda m: True)
-def chat(message):
     try:
-        response = get_response(message.chat.id, message.text)
-        bot.reply_to(message, response)
+        response = requests.post(f"{KOBOLD_URL}/api/v1/generate", json=payload, timeout=30)
+        response.raise_for_status()
+        result = response.json()
+        return result["results"][0]["text"].strip()
     except Exception as e:
-        print(f"Ошибка: {e}")
-        bot.reply_to(message, "Персонаж задумался... Повтори позже.")
+        logger.error(f"Kobold API error: {e}")
+        return "Детка, чёт Kobold тупит, повтори позже 😏"
 
-# Обязательный веб-сервер для Render
-app = Flask(__name__)
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /start"""
+    await update.message.reply_text(
+        "Йоу, принцесса! Минги на связи 😏\n"
+        "Давай поболтаем, не стесняйся. Только не кринжуй сильно, ахах."
+    )
 
-@app.route('/')
-def home():
-    return "Бот-персонаж работает!"
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка всех текстовых сообщений"""
+    user_message = update.message.text
+    username = update.message.from_user.first_name or "принцесса"
+    
+    # Отправляем "печатает..."
+    await update.message.chat.send_action(action="typing")
+    
+    # Получаем ответ от Kobold
+    reply = query_kobold(user_message, username)
+    
+    # Отправляем ответ
+    await update.message.reply_text(reply)
 
-threading.Thread(target=lambda: app.run(host='0.0.0.0', port=10000)).start()
-bot.infinity_polling()
+def main():
+    """Запуск бота"""
+    if not TELEGRAM_TOKEN or not KOBOLD_URL:
+        raise ValueError("Укажи TELEGRAM_TOKEN и KOBOLD_URL в переменных окружения!")
+    
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    
+    # Регистрируем обработчики
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # Запускаем поллинг
+    logger.info("Бот Минги запущен! Угараем по полной 😏")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == "__main__":
+    main()
