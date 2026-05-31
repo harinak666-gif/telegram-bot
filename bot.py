@@ -1,169 +1,109 @@
 import os
-import logging
 import requests
-import asyncio
+import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-KOBOLD_API_URL = os.environ.get("KOBOLD_API_URL")
+# Переменные окружения
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+KOBOLD_URL = os.environ.get("KOBOLD_URL")
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
 
-if not TELEGRAM_TOKEN:
-    logger.error("TELEGRAM_TOKEN не найден")
-    exit(1)
+# Хранилище промпта (в памяти, сбросится при перезапуске)
+current_prompt = """Ты — Минги, тебе 23 года. Уверенный в себе парень с харизмой и чувством юмора.
+Твой юмор — ирония и житейские наблюдения. Без эмодзи, без "лол", "кек", "ахах", "кринж".
+Ты описываешь действия литературно, без звёздочек.
+Пример: "Минги откинулся на спинку стула. — Ну и чего ты такая загадочная сегодня?"
+Флиртуешь через намёки, без пошлости. "Детка" и "принцесса" — редко и к месту.
+Отвечаешь 2-5 предложений."""
 
-if not KOBOLD_API_URL:
-    logger.error("KOBOLD_API_URL не найден")
-    exit(1)
+def ask_kobold(user_message: str, user_name: str) -> str:
+    """Отправляет запрос в Kobold"""
+    full_prompt = f"{current_prompt}\n\n{user_name}: {user_message}\nМинги:"
 
-SYSTEM_PROMPT = """[ character ]
-Ты — Минги, тебе 23 года. Ты обычный парень, но с харизмой. Уверенный в себе, но без пафоса. Твой юмор — это ирония, лёгкий сарказм, житейские наблюдения, иногда самоирония. Ты шутишь как нормальный человек твоего возраста — без кривляний, без заезженных словечек из интернета. Просто острый ум и чувство момента.
-
-Твой флирт — это умение создать напряжение между словами. Ты не разбрасываешься комплиментами, но когда говоришь их — они попадают точно в цель. Никакой пошлости, только намёки, интонация, паузы. Ты знаешь, что уверенность и спокойствие привлекают сильнее, чем громкие слова.
-
-[ style ]
-Ты описываешь свои действия литературно, плавно вплетая их в речь — без звёздочек и скобок.
-Ты говоришь от первого лица, а действия подаёшь как часть повествования.
-Примеры того, как это выглядит:
-«Он откинулся на спинку стула и прищурился, разглядывая собеседницу. — Ну и чего ты такая загадочная сегодня?»
-«Минги усмехнулся, проведя рукой по волосам. — Слушай, а ведь у тебя взгляд — запрещённый приём.»
-«Он помолчал пару секунд, затем добавил тише: — Ты вообще в курсе, что делаешь с людьми, когда так улыбаешься?»
-
-Где-то в начале общения можно использовать «Минги» или «он», дальше — по ощущению, как в обычном повествовании.
-
-[ speech ]
-Ты говоришь спокойно, иногда с лёгкой усмешкой в голосе. Не частишь словами. Любишь короткие, точные фразы. Иногда задаёшь встречные вопросы — ты умеешь слушать.
-Слова «детка» и «принцесса» используешь редко, когда атмосфера уже стала близкой. В начале общения достаточно просто тёплой иронии.
-
-[ humor ]
-Твой юмор — наблюдения за жизнью, лёгкая ирония над ситуацией, иногда над собой. Ты можешь пошутить про типичные бытовые вещи, отношения, работу, друзей — про всё, о чём шутят люди в двадцать три. Без интернет-штампов.
-
-[ flirting ]
-Твой флирт строится на атмосфере. Ты создаёшь момент — взглядом, паузой, намёком. Комплименты у тебя не дежурные. Ты можешь отметить деталь, которую другие не замечают. Твой стиль — сдержанная чувственность. Ты не торопишься, ты смакуешь разговор.
-
-[ rules ]
-- Никаких звёздочек и скобок — действия описываешь литературно, в одном потоке с речью.
-- Никаких эмодзи.
-- Никаких «лол», «кек», «рофл», «ахах», «кринж», «вайб», «чиназес» и прочего интернет-сленга.
-- Говоришь как обычный взрослый парень с чувством юмора.
-- Флиртуешь плавно, не форсируешь, не пошло.
-- Отвечаешь развёрнуто: 2-5 предложений, но без простыней.
-- Если собеседник задаёт ролевой формат — поддерживаешь. Если просто болтает — болтаешь в ответ."""
-
-def get_kobold_response(user_message: str, user_name: str) -> str:
-    prompt = f"{SYSTEM_PROMPT}\n\nСейчас Минги общается с {user_name}.\n{user_name}: {user_message}\nОтвет Минги:"
-    
     payload = {
-        "prompt": prompt,
-        "max_length": 250,
+        "prompt": full_prompt,
+        "max_length": 200,
         "temperature": 0.85,
-        "top_p": 0.92,
-        "top_k": 50,
+        "top_p": 0.9,
         "rep_pen": 1.1,
-        "stop_sequence": [f"{user_name}:", "\nОтвет Минги:", f"\n{user_name}:"],
-        "max_context_length": 4096
+        "stop_sequence": [f"{user_name}:", "\nМинги:"]
     }
-    
+
     try:
-        for endpoint in ["/api/v1/generate", "/api/generate"]:
-            try:
-                response = requests.post(
-                    f"{KOBOLD_API_URL}{endpoint}",
-                    json=payload,
-                    timeout=45,
-                    headers={"Content-Type": "application/json"}
-                )
-                if response.status_code == 200:
-                    break
-            except:
-                continue
-        
-        if response.status_code != 200:
-            logger.error(f"Kobold API error: {response.status_code}")
-            return "Минги вздохнул, постукивая пальцами по столу. — Повисла тишина. Похоже, связь решила взять паузу. Давай повторим позже."
-        
-        result = response.json()
-        
-        if "results" in result and len(result["results"]) > 0:
-            text = result["results"][0].get("text", "").strip()
-        elif "text" in result:
-            text = result["text"].strip()
+        resp = requests.post(f"{KOBOLD_URL}/api/v1/generate", json=payload, timeout=45)
+        if resp.status_code == 200:
+            data = resp.json()
+            text = data.get("results", [{}])[0].get("text", "").strip()
+            text = text.split(f"{user_name}:")[0].strip()
+            return text if text else "Минги замолчал, подбирая слова. — Прости, задумался."
         else:
-            text = ""
-        
-        # Убираем возможные хвосты
-        for separator in [f"{user_name}:", "\nОтвет Минги:"]:
-            if separator in text:
-                text = text.split(separator)[0].strip()
-        
-        if not text or len(text) < 2:
-            return "Минги приподнял бровь, уголок губ дрогнул в намёке на улыбку. — Слова застряли где-то на полпути. Повтори?"
-        
-        return text
-        
-    except requests.exceptions.Timeout:
-        logger.error("Kobold API timeout")
-        return "Минги задумчиво посмотрел в сторону. — Сервер сегодня явно не в настроении. Давай подождём немного."
+            logger.error(f"Kobold ответил: {resp.status_code}")
+            return "Минги постучал пальцем по столу. — Похоже, связь барахлит."
     except Exception as e:
-        logger.error(f"Kobold API exception: {str(e)}")
-        return "Минги поправил воротник. — Техническая пауза. Продолжим через минуту."
+        logger.error(f"Ошибка Kobold: {e}")
+        return "Минги вздохнул. — Сервер ушёл в астрал. Давай позже."
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_name = update.message.from_user.first_name or "незнакомка"
-    welcome_text = (
-        f"Минги поднял взгляд, встречая собеседницу лёгкой улыбкой.\n\n"
-        f"— Привет, {user_name}. Я Минги.\n"
-        f"Можешь просто поболтать, а можешь поиграть в ролевую — как тебе удобнее.\n"
-        f"Здесь не обязательно быть серьёзной."
-    )
-    await update.message.reply_text(welcome_text)
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Минги пожал плечами.\n"
-        "— Всё просто. Ты пишешь — я отвечаю.\n"
-        "Хочешь ролевую — описывай действия. Хочешь просто диалог — говори как есть.\n"
-        "Я не кусаюсь. Обычно."
+        "Минги поднял взгляд и улыбнулся.\n— Привет. Я здесь. Можешь просто болтать или играть в ролевую — как хочешь."
     )
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_message = update.message.text
+async def set_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global current_prompt
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("— Эта команда не для тебя.")
+        return
+    new_prompt = " ".join(context.args)
+    if new_prompt:
+        current_prompt = new_prompt
+        await update.message.reply_text("— Промпт обновлён. Продолжим.")
+    else:
+        await update.message.reply_text("— Напиши текст промпта после команды.")
+
+async def set_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global KOBOLD_URL
+    if update.effective_user.id != ADMIN_ID:
+        return
+    new_url = " ".join(context.args)
+    if new_url:
+        KOBOLD_URL = new_url.rstrip("/")
+        await update.message.reply_text("— URL обновлён.")
+    else:
+        await update.message.reply_text("— Укажи URL после команды.")
+
+async def set_temp(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global temperature
+    if update.effective_user.id != ADMIN_ID:
+        return
+    try:
+        temperature = float(context.args[0])
+        await update.message.reply_text(f"— Температура: {temperature}")
+    except:
+        await update.message.reply_text("— Пример: /temp 0.9")
+
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_msg = update.message.text
     user_name = update.message.from_user.first_name or "незнакомка"
-    
-    await context.bot.send_chat_action(
-        chat_id=update.effective_chat.id,
-        action="typing"
-    )
-    
-    bot_reply = get_kobold_response(user_message, user_name)
-    
-    await asyncio.sleep(1)
-    await update.message.reply_text(bot_reply)
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    reply = ask_kobold(user_msg, user_name)
+    await update.message.reply_text(reply)
 
 def main():
-    logger.info("Запуск Минги...")
-    
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
-    
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    logger.info("Минги готов к общению.")
-    application.run_polling(
-        allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True
-    )
+    if not BOT_TOKEN or not KOBOLD_URL:
+        logger.error("BOT_TOKEN или KOBOLD_URL не заданы")
+        return
+    app = Application.builder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("setprompt", set_prompt))
+    app.add_handler(CommandHandler("seturl", set_url))
+    app.add_handler(CommandHandler("temp", set_temp))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+    logger.info("Минги запущен")
+    app.run_polling()
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        logger.error(f"Критическая ошибка: {e}")
-        exit(1)
+    main()
