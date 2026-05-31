@@ -1,8 +1,13 @@
 import os
-import requests
+import sys
 import logging
+import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+
+# Проверка версии Python
+if sys.version_info < (3, 8):
+    raise RuntimeError("Требуется Python 3.8+")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
