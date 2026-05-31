@@ -36,7 +36,12 @@ def generate(prompt):
         url = f"{GEMINI_URL}?key={GEMINI_API_KEY}"
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": 100, "temperature": 0.9}
+            "generationConfig": {
+                "maxOutputTokens": 250,  # больше токенов = полный ответ
+                "temperature": 0.9,
+                "topP": 0.95,
+                "topK": 40
+            }
         }
         resp = requests.post(url, json=payload, timeout=20)
         if resp.status_code == 200:
